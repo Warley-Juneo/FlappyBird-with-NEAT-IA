@@ -1,0 +1,6 @@
+pygame 2.4.0 (SDL 2.26.4, Python 3.8.10)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+Traceback (most recent call last):
+  File "game/FlappyBird.py", line 306, in <module>
+    game_window = pyautogui.getWindowsWithTitle('pygame window')[0]
+AttributeError: module 'pyautogui' has no attribute 'getWindowsWithTitle'

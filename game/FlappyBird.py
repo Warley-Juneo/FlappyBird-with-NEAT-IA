@@ -3,10 +3,11 @@ import os
 import random
 import neat
 
+
 ai_playing = True
 generation = 0
 
-WINDOW_WIDTH = 600
+WINDOW_WIDTH = 550
 WINDOW_HEIGHT = 800
 
 IMAGE_PIPE = pygame.transform.scale2x(pygame.image.load(os.path.join('imgs', 'pipe.png')))
@@ -26,30 +27,48 @@ class Bird:
     MAX_ROTATION = 25
     ROTATION_VELOCITY = 20
     ANIMATION_TIME = 5
+    GLIDE_DURATION = 25
+    GLIDE_COOLDOWN = 40
 
     def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.tilt = 0
-        self.velocity = 0
-        self.height = self.y
-        self.tick = 0
-        self.image = self.IMGS[0]
-        self.count_image = 0
+        self.x                          = x
+        self.y                          = y
+        self.tilt                       = 0
+        self.velocity                   = 0
+        self.height                     = self.y
+        self.tick                       = 0
+        self.image                      = self.IMGS[0]
+        self.count_image                = 0
+        self.glide_time                 = 0
+        self.glide_cooldown             = 0
+        self.flag                       = False
         
     def jump(self):
-        self.velocity = -10.5
+        self.velocity = -12.5
         self.tick = 0
         self.height = self.y
 
-    def move(self):
-        self.tick += 1
-        displacement = 1.5 * (self.tick ** 2) + self.velocity * self.tick
+    def glide(self):
+        if (self.flag == False):
+            self.glide_time = self.GLIDE_DURATION
+            self.flag = True
+        if self.glide_cooldown >= self.GLIDE_COOLDOWN:
+            self.glide_cooldown = 0
+            self.flag = False
 
-        if displacement >= 16:
-            displacement = 16
-        elif displacement < 0:
-            displacement -= 2
+    def move(self):
+        self.glide_cooldown += 1
+        if self.glide_time > 0:
+            displacement = -0.1
+            self.glide_time -= 1
+        else:
+            self.tick += 1
+            displacement = 1.5 * (self.tick ** 2) + self.velocity * self.tick
+
+            if displacement >= 16:
+                displacement = 16
+            elif displacement < 0:
+                displacement -= 2
 
         self.y += displacement
 
@@ -89,7 +108,7 @@ class Bird:
 
 class Pipe:
     DISTANCE = 200
-    VELOCITY = 5
+    VELOCITY = 8
 
     def __init__(self, x):
         self.x = x
@@ -129,7 +148,7 @@ class Pipe:
         return False
 
 class Floor:
-    VELOCITY = 5
+    VELOCITY = 8
     WIDTH = IMAGE_FLOOR.get_width()
     IMAGE = IMAGE_FLOOR
 
@@ -191,6 +210,8 @@ def main(genomas, config):
     floor = Floor(730)
     pipes = [Pipe(700)]
     window = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+    pygame.display.set_caption('Flappy Bird')
+
     score = 0
     clock = pygame.time.Clock()
 
@@ -206,6 +227,9 @@ def main(genomas, config):
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                     for bird in birds:
                         bird.jump()
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_g:
+                    for bird in birds:
+                        bird.glide()
         
         pipe_index = 0
         if len(birds) > 0:
@@ -217,12 +241,16 @@ def main(genomas, config):
 
         for i, bird in enumerate(birds):
             bird.move()
-            list_genomas[i].fitness += 0.1
-            output = nets[i].activate((bird.y, abs(bird.y - pipes[pipe_index].height), abs(bird.y - pipes[pipe_index].base)))
-
-            if output[0] > 0.5:
-                bird.jump()
-            
+            if ai_playing:
+                list_genomas[i].fitness += 0.1
+                output = nets[i].activate((bird.y, abs(bird.y - pipes[pipe_index].height), abs(bird.y - pipes[pipe_index].base), bird.glide_cooldown, pipes[pipe_index].x))
+                if output[0] > 0.5:
+                    bird.jump()
+                elif output[1] > 0.5:
+                    bird.glide()   
+                    #recompense a Ia por usar glide perto de um cano
+                    if pipes[pipe_index].x < bird.x < pipes[pipe_index].x + pipes[pipe_index].PIPE_TOP.get_width():
+                        list_genomas[i].fitness += 0.1
         floor.move()
 
         add_pipe = False
@@ -245,8 +273,9 @@ def main(genomas, config):
         if add_pipe:
             score += 1
             pipes.append(Pipe(600))
-            for genoma in list_genomas:
-                genoma.fitness += 5
+            if ai_playing:
+                for genoma in list_genomas:
+                    genoma.fitness += 5
 
         for pipe in remove_pipe:
             pipes.remove(pipe)
@@ -277,4 +306,6 @@ def run(path_config):
 if __name__ == '__main__':
     path = os.path.dirname(__file__)
     path_config = os.path.join(path, 'config_ia.txt')
+
     run(path_config)
+    os.system('xdotool search --name "pygame window" windowminimize')
