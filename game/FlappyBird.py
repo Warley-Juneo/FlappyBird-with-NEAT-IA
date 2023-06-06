@@ -1,8 +1,12 @@
 import pygame
 import os
 import random
+import neat
 
-WINDOW_WIDTH = 500
+ai_playing = True
+generation = 0
+
+WINDOW_WIDTH = 600
 WINDOW_HEIGHT = 800
 
 IMAGE_PIPE = pygame.transform.scale2x(pygame.image.load(os.path.join('imgs', 'pipe.png')))
@@ -159,12 +163,31 @@ def draw_window(window, birds, pipes, floor, score):
     text = FONT.render(f'Score: {score}', 1, (255, 255, 255))
     window.blit(text, (WINDOW_WIDTH - 10 - text.get_width(), 10))
 
+    if ai_playing:
+        text = FONT.render(f'Generation: {generation}', 1, (255, 255, 255))
+        window.blit(text, (10, 10))
+
     floor.draw(window)
 
     pygame.display.update()
 
-def main():
-    birds = [Bird(230, 350)]
+def main(genomas, config):
+    global generation
+    generation += 1
+
+    if ai_playing:
+        nets = []
+        list_genomas = []
+        birds = []
+
+        for _, genoma in genomas:
+            net = neat.nn.FeedForwardNetwork.create(genoma, config)
+            nets.append(net)
+            genoma.fitness = 0
+            list_genomas.append(genoma)
+            birds.append(Bird(230, 350))
+    else:
+        birds = [Bird(230, 350)]
     floor = Floor(730)
     pipes = [Pipe(700)]
     window = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
@@ -179,12 +202,27 @@ def main():
                 run = False
                 pygame.quit()
                 quit()
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                for bird in birds:
-                    bird.jump()
+            if not ai_playing:
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                    for bird in birds:
+                        bird.jump()
         
-        for bird in birds:
+        pipe_index = 0
+        if len(birds) > 0:
+            if len(pipes) > 1 and birds[0].x > pipes[0].x + pipes[0].PIPE_TOP.get_width():
+                pipe_index = 1
+        else:
+            rodando = False
+            break
+
+        for i, bird in enumerate(birds):
             bird.move()
+            list_genomas[i].fitness += 0.1
+            output = nets[i].activate((bird.y, abs(bird.y - pipes[pipe_index].height), abs(bird.y - pipes[pipe_index].base)))
+
+            if output[0] > 0.5:
+                bird.jump()
+            
         floor.move()
 
         add_pipe = False
@@ -193,6 +231,10 @@ def main():
             for i, bird in enumerate (birds):
                 if pipe.collide(bird):
                     birds.pop(i)
+                    if ai_playing:
+                        list_genomas[i].fitness -= 1
+                        list_genomas.pop(i)
+                        nets.pop(i)
                 if not pipe.passed and pipe.x < bird.x:
                     pipe.passed = True
                     add_pipe = True
@@ -203,6 +245,8 @@ def main():
         if add_pipe:
             score += 1
             pipes.append(Pipe(600))
+            for genoma in list_genomas:
+                genoma.fitness += 5
 
         for pipe in remove_pipe:
             pipes.remove(pipe)
@@ -210,9 +254,27 @@ def main():
         for i, bird in enumerate(birds):
             if bird.y + bird.image.get_height() >= floor.y or bird.y < 0:
                 birds.pop(i)
+                if ai_playing:
+                    list_genomas.pop(i)
+                    nets.pop(i)
 
 
         draw_window(window, birds, pipes, floor, score)
 
+
+def run(path_config):
+    config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction, neat.DefaultSpeciesSet, neat.DefaultStagnation, path_config)
+    
+    population = neat.Population(config)
+    population.add_reporter(neat.StdOutReporter(True))
+    population.add_reporter(neat.StatisticsReporter())
+    
+    if ai_playing:
+        population.run(main, 50)
+    else:
+        main(None, None)
+
 if __name__ == '__main__':
-    main()
+    path = os.path.dirname(__file__)
+    path_config = os.path.join(path, 'config_ia.txt')
+    run(path_config)
